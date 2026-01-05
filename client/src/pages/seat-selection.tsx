@@ -1,19 +1,16 @@
 import { useParams } from "wouter";
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle, Armchair, MapPin } from "lucide-react";
-import { ProtectedMoney } from "@/components/ui/protected-money";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Client, Bus, Child } from "@shared/schema";
 import { DD64Layout } from "@/components/buses/layouts/DD64Layout";
 import { Executivo46Layout } from "@/components/buses/layouts/Executivo46Layout";
-import { Grafico42Layout } from "@/components/buses/layouts/Grafico42Layout";
-import { LD44Layout } from "@/components/buses/layouts/LD44Layout";
 import { GenericBusLayout } from "@/components/buses/layouts/GenericBusLayout";
 
 interface SeatSelectionData {
@@ -34,7 +31,6 @@ export default function SeatSelection() {
   const [currentPersonIndex, setCurrentPersonIndex] = useState<number>(0);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const clickInProgressRef = useRef(false);
 
   const { data: seatData, isLoading, error } = useQuery<SeatSelectionData>({
     queryKey: ["/api/seat-selection", token],
@@ -101,8 +97,8 @@ export default function SeatSelection() {
     return true;
   };
 
-  // Get all people (client + children) - memoized for stability
-  const allPeople = useMemo(() => {
+  // Get all people (client + children)
+  const getAllPeople = () => {
     if (!seatData) return [];
     const people: Array<{ id: string; name: string; type: 'client' | 'child'; price: number }> = [
       { id: 'client', name: `${seatData.client.first_name} ${seatData.client.last_name}`, type: 'client', price: seatData.client.travel_price || 0 }
@@ -113,68 +109,18 @@ export default function SeatSelection() {
       }
     });
     return people;
-  }, [seatData]);
+  };
 
+  const allPeople = getAllPeople();
   const currentPerson = allPeople[currentPersonIndex];
 
-  const handleSeatSelect = useCallback((seatNumber: string) => {
-    // Prevent concurrent clicks - critical for Android stability
-    if (clickInProgressRef.current) {
-      return;
-    }
-    
-    // Safety checks for mobile stability
-    if (!seatData || !allPeople.length) {
-      return;
-    }
-    
-    const person = allPeople[currentPersonIndex];
-    if (!person) {
-      return;
-    }
-    
-    // Prevent selecting already reserved seats
-    if (seatData.reserved_seats?.includes(seatNumber)) {
-      toast({
-        title: "Assento indisponível",
-        description: "Este assento já está reservado.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    // Prevent selecting a seat already chosen by another person in this session
-    const alreadySelectedByOther = Object.entries(selectedSeats).some(
-      ([personId, seat]) => seat === seatNumber && personId !== person.id
-    );
-    
-    if (alreadySelectedByOther) {
-      toast({
-        title: "Assento já selecionado",
-        description: "Este assento já foi escolhido para outro passageiro.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    clickInProgressRef.current = true;
-    
-    // Update selected seats
+  const handleSeatSelect = (seatNumber: string) => {
+    if (!currentPerson) return;
     setSelectedSeats(prev => ({
       ...prev,
-      [person.id]: seatNumber
+      [currentPerson.id]: seatNumber
     }));
-    
-    // Auto-advance to next person if there are more people - do it synchronously
-    if (currentPersonIndex < allPeople.length - 1) {
-      setCurrentPersonIndex(prev => prev + 1);
-    }
-    
-    // Reset click flag after a short delay
-    requestAnimationFrame(() => {
-      clickInProgressRef.current = false;
-    });
-  }, [seatData, allPeople, currentPersonIndex, selectedSeats, toast]);
+  };
 
   const handleNext = () => {
     if (!selectedSeats[currentPerson.id]) {
@@ -267,24 +213,6 @@ export default function SeatSelection() {
           isSelectable={true}
         />
       );
-    } else if ((busType.includes('grafico') || busType.includes('gráfico')) && totalSeats === 42) {
-      return (
-        <Grafico42Layout
-          reservedSeats={reservedSeats}
-          selectedSeat={currentSeat}
-          onSeatSelect={handleSeatSelect}
-          isSelectable={true}
-        />
-      );
-    } else if ((busType.includes('ld') && busType.includes('44')) || totalSeats === 44) {
-      return (
-        <LD44Layout
-          reservedSeats={reservedSeats}
-          selectedSeat={currentSeat}
-          onSeatSelect={handleSeatSelect}
-          isSelectable={true}
-        />
-      );
     } else {
       // Generic layout for other bus types
       return (
@@ -339,18 +267,18 @@ export default function SeatSelection() {
 
   if (seatData.already_selected) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-2 sm:p-4">
-        <Card className="w-full max-w-4xl mx-2 sm:mx-auto">
-          <CardContent className="p-4 sm:p-8">
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
+        <Card className="w-full max-w-4xl">
+          <CardContent className="p-8">
             <div className="text-center">
-              <CheckCircle className="h-12 w-12 sm:h-16 sm:w-16 text-green-500 mx-auto mb-4" />
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-2">
+              <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                 Assento Já Selecionado
               </h1>
-              <p className="text-muted-foreground mb-4 text-sm sm:text-base">
+              <p className="text-muted-foreground mb-4">
                 Você já selecionou o assento <strong>{seatData.client.seat_number}</strong> para sua viagem.
               </p>
-              <p className="text-xs sm:text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Se precisar alterar sua seleção, entre em contato com a agência.
               </p>
             </div>
@@ -362,18 +290,18 @@ export default function SeatSelection() {
 
   if (!seatData.valid || seatData.expired) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-2 sm:p-4">
-        <Card className="w-full max-w-4xl mx-2 sm:mx-auto">
-          <CardContent className="p-4 sm:p-8">
+      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center p-4">
+        <Card className="w-full max-w-4xl">
+          <CardContent className="p-8">
             <div className="text-center">
-              <XCircle className="h-12 w-12 sm:h-16 sm:w-16 text-orange-500 mx-auto mb-4" />
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-2">
+              <XCircle className="h-16 w-16 text-orange-500 mx-auto mb-4" />
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                 Link Expirado
               </h1>
-              <p className="text-muted-foreground mb-4 text-sm sm:text-base">
+              <p className="text-muted-foreground mb-4">
                 Este link de seleção de assento expirou.
               </p>
-              <p className="text-xs sm:text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Entre em contato com a agência de viagens para obter um novo link.
               </p>
             </div>
@@ -410,22 +338,21 @@ export default function SeatSelection() {
   const totalPrice = getTotalPrice();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-2 sm:p-4 py-4 sm:py-8">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4 py-8">
       <div className="max-w-6xl mx-auto">
-        <Card className="mx-1 sm:mx-0">
-          <CardHeader className="p-3 sm:p-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 mb-2">
-              <Armchair className="h-6 w-6 sm:h-8 sm:w-8 text-blue-600" />
-              <CardTitle className="text-lg sm:text-2xl">Seleção de Assentos</CardTitle>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <Armchair className="h-8 w-8 text-blue-600" />
+              <CardTitle className="text-2xl">Seleção de Assentos - {seatData.bus?.name}</CardTitle>
             </div>
-            <div className="text-sm sm:text-base text-muted-foreground">{seatData.bus?.name}</div>
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <MapPin className="h-3 w-3 sm:h-4 sm:w-4" />
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <MapPin className="h-4 w-4" />
               <span>{seatData.destination_name}</span>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4 sm:space-y-6 p-3 sm:p-6">
-            <Alert className="text-sm sm:text-base">
+          <CardContent className="space-y-6">
+            <Alert>
               <AlertDescription>
                 {allPeople.length === 1 ? (
                   <>
@@ -443,26 +370,26 @@ export default function SeatSelection() {
             </Alert>
 
             {/* Progress indicator showing all people */}
-            <div className="space-y-2 sm:space-y-3">
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-xs sm:text-sm text-muted-foreground">
+                <h3 className="font-semibold text-sm text-muted-foreground">
                   Selecionando para:
                 </h3>
-                <span className="text-xs sm:text-sm text-muted-foreground">
+                <span className="text-sm text-muted-foreground">
                   {currentPersonIndex + 1} de {allPeople.length}
                 </span>
               </div>
-              <div className="flex flex-wrap gap-1 sm:gap-2">
+              <div className="flex flex-wrap gap-2">
                 {allPeople.map((person, index) => (
                   <Badge
                     key={person.id}
                     variant={index === currentPersonIndex ? "default" : "outline"}
-                    className={`cursor-pointer text-xs sm:text-sm px-2 py-1 ${selectedSeats[person.id] ? 'bg-green-100 dark:bg-green-900 border-green-500' : ''}`}
+                    className={`cursor-pointer ${selectedSeats[person.id] ? 'bg-green-100 dark:bg-green-900 border-green-500' : ''}`}
                     onClick={() => setCurrentPersonIndex(index)}
                     data-testid={`badge-person-${index}`}
                   >
-                    {person.name.split(' ')[0]}
-                    {selectedSeats[person.id] && ` #${selectedSeats[person.id]}`}
+                    {person.name}
+                    {selectedSeats[person.id] && ` - #${selectedSeats[person.id]}`}
                     {index === currentPersonIndex && ' ⬅'}
                   </Badge>
                 ))}
@@ -483,10 +410,8 @@ export default function SeatSelection() {
               )}
 
               {/* Bus Layout */}
-              <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0">
-                <div className="min-w-fit">
-                  {getBusLayout()}
-                </div>
+              <div className="overflow-x-auto">
+                {getBusLayout()}
               </div>
 
               {currentPerson && selectedSeats[currentPerson.id] && (
@@ -499,31 +424,30 @@ export default function SeatSelection() {
             </div>
 
             {/* Total Price Display */}
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950 p-3 sm:p-4 rounded-lg border border-green-200 dark:border-green-800">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950 p-4 rounded-lg border border-green-200 dark:border-green-800">
+              <div className="flex justify-between items-center">
                 <div>
-                  <h4 className="font-semibold text-base sm:text-lg">Valor Total</h4>
-                  <p className="text-xs sm:text-sm text-muted-foreground">
+                  <h4 className="font-semibold text-lg">Valor Total da Viagem</h4>
+                  <p className="text-sm text-muted-foreground">
                     {allPeople.length === 1 ? '1 passageiro' : `${allPeople.length} passageiros`}
                   </p>
                 </div>
-                <div className="text-left sm:text-right">
-                  <p className="text-2xl sm:text-3xl font-bold text-green-700 dark:text-green-400" data-testid="text-total-price">
+                <div className="text-right">
+                  <p className="text-3xl font-bold text-green-700 dark:text-green-400" data-testid="text-total-price">
                     R$ {totalPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Navigation buttons */}
-            <div className="flex justify-between gap-2 sm:gap-4 pt-4 border-t">
+            {/* Navigation and confirm buttons */}
+            <div className="flex justify-between gap-4 pt-4 border-t">
               <div className="flex gap-2">
                 {currentPersonIndex > 0 && (
                   <Button
                     onClick={handlePrevious}
                     variant="outline"
-                    size="default"
-                    className="text-sm sm:text-base px-3 sm:px-4 py-2 min-h-[44px]"
+                    size="lg"
                     data-testid="button-previous"
                   >
                     ← Anterior
@@ -531,65 +455,34 @@ export default function SeatSelection() {
                 )}
               </div>
               <div className="flex gap-2">
-                {currentPersonIndex < allPeople.length - 1 && (
+                {currentPersonIndex < allPeople.length - 1 ? (
                   <Button
                     onClick={handleNext}
-                    size="default"
-                    className="px-4 sm:px-8 text-sm sm:text-base min-h-[44px]"
+                    size="lg"
+                    className="px-8"
                     disabled={!selectedSeats[currentPerson.id]}
                     data-testid="button-next"
                   >
                     Próximo →
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleConfirmAll}
+                    disabled={!allPeople.every(p => selectedSeats[p.id]) || selectSeatMutation.isPending}
+                    size="lg"
+                    className="px-8"
+                    data-testid="button-confirm-all-seats"
+                  >
+                    {selectSeatMutation.isPending ? "Confirmando..." : "Confirmar Todos os Assentos"}
                   </Button>
                 )}
               </div>
             </div>
           </CardContent>
         </Card>
-
-        {/* Sticky Floating Glass Morphism Confirm Button */}
-        {currentPersonIndex === allPeople.length - 1 && Object.keys(selectedSeats).length > 0 && (
-          <div className="fixed bottom-4 right-4 sm:bottom-8 sm:right-8 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
-            <div className="relative group">
-              {/* Glow effect background */}
-              <div className="absolute inset-0 bg-gradient-to-r from-green-400 to-emerald-400 rounded-full blur-xl opacity-40 group-hover:opacity-60 transition-opacity duration-300"></div>
-              
-              {/* Glass Button */}
-              <Button
-                onClick={handleConfirmAll}
-                disabled={!allPeople.every(p => selectedSeats[p.id]) || selectSeatMutation.isPending}
-                size="lg"
-                className={`relative rounded-full h-24 w-24 flex items-center justify-center font-semibold text-center px-0 whitespace-normal transition-all duration-300 
-                  backdrop-blur-xl bg-white/20 dark:bg-white/10 
-                  border border-white/40 dark:border-white/20
-                  shadow-2xl hover:shadow-2xl
-                  hover:bg-white/30 dark:hover:bg-white/20
-                  hover:scale-105 active:scale-95
-                  text-white dark:text-white
-                  ${selectSeatMutation.isPending ? 'opacity-70' : 'opacity-100'}
-                  disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100
-                  `}
-                data-testid="button-confirm-all-seats"
-              >
-                {selectSeatMutation.isPending ? (
-                  <div className="flex flex-col items-center gap-1">
-                    <div className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin"></div>
-                    <span className="text-xs font-medium">Confirmando...</span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-1">
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span className="text-xs font-semibold">Confirmar</span>
-                  </div>
-                )}
-              </Button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
 }
+
 
