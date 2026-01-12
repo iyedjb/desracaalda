@@ -69,6 +69,8 @@ export default function ControleDePonto() {
   const [breakTimeRemaining, setBreakTimeRemaining] = useState(0);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedDay, setSelectedDay] = useState(new Date().getDate());
+  const [reportType, setReportType] = useState<"daily" | "weekly" | "monthly" | "yearly">("monthly");
   const [selectedUserForReport, setSelectedUserForReport] = useState<string>("all");
   const [selectedUserForHistory, setSelectedUserForHistory] = useState<string>("");
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
@@ -239,21 +241,36 @@ export default function ControleDePonto() {
   }, [qrDialogOpen, qrCodeData?.token, verificationStatus]);
 
   const handleGeneratePDF = async () => {
-    const startDate = `${selectedYear}-${selectedMonth.toString().padStart(2, "0")}-01`;
-    const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
-    const endDate = `${selectedYear}-${selectedMonth.toString().padStart(2, "0")}-${lastDay}`;
+    let records = allRecords || [];
 
-    let records = allRecords?.filter(
-      (record) => record.date >= startDate && record.date <= endDate
-    );
+    if (reportType === "daily") {
+      const dateStr = `${selectedYear}-${selectedMonth.toString().padStart(2, "0")}-${selectedDay.toString().padStart(2, "0")}`;
+      records = records.filter(r => String(r.date) === dateStr);
+    } else if (reportType === "monthly") {
+      const prefix = `${selectedYear}-${selectedMonth.toString().padStart(2, "0")}`;
+      records = records.filter(r => String(r.date).startsWith(prefix));
+    } else if (reportType === "yearly") {
+      const prefix = `${selectedYear}`;
+      records = records.filter(r => String(r.date).startsWith(prefix));
+    } else if (reportType === "weekly") {
+      // Simplificação: pega os últimos 7 dias a partir da data selecionada
+      const targetDate = new Date(selectedYear, selectedMonth - 1, selectedDay);
+      const oneWeekAgo = new Date(targetDate);
+      oneWeekAgo.setDate(targetDate.getDate() - 7);
+      
+      records = records.filter(r => {
+        const d = new Date(r.date);
+        return d >= oneWeekAgo && d <= targetDate;
+      });
+    }
 
     // Filter by selected user if not "all"
     if (selectedUserForReport !== "all") {
-      records = records?.filter((record) => record.user_id === selectedUserForReport);
+      records = records.filter((record) => record.user_id === selectedUserForReport);
     }
 
     if (!records || records.length === 0) {
-      alert("Não há registros para o mês e usuário selecionados.");
+      alert("Não há registros para o período e usuário selecionados.");
       return;
     }
 
@@ -261,15 +278,15 @@ export default function ControleDePonto() {
     const reportData: TimeRecordReportData = {
       records: records.map(record => ({
         id: record.id,
-        user_name: record.user_name,
-        user_email: record.user_email,
-        date: record.date,
-        clock_in: record.clock_in,
+        user_name: record.user_name || "N/A",
+        user_email: record.user_email || "N/A",
+        date: String(record.date),
+        clock_in: record.clock_in!,
         clock_out: record.clock_out || undefined,
         break_start: record.break_start || undefined,
         break_end: record.break_end || undefined,
-        break_duration_minutes: record.break_duration_minutes,
-        total_hours: record.total_hours,
+        break_duration_minutes: record.break_duration_minutes || 0,
+        total_hours: record.total_hours || 0,
       })),
       month: selectedMonth.toString().padStart(2, "0"),
       year: selectedYear.toString(),
@@ -411,7 +428,6 @@ export default function ControleDePonto() {
                   </div>
                 )}
 
-                {todayRecord.clock_out && (
                   <div className="bg-green-100 dark:bg-green-900/20 p-4 sm:p-6 rounded-lg text-center space-y-2">
                     <Badge variant="default" className="text-sm sm:text-base px-3 py-1" data-testid="badge-completed">
                       Ponto encerrado
@@ -419,11 +435,10 @@ export default function ControleDePonto() {
                     <div className="text-base sm:text-lg">
                       Total de horas trabalhadas:{" "}
                       <span className="font-bold text-lg sm:text-xl" data-testid="text-total-hours">
-                        {todayRecord.total_hours.toFixed(2)}h
+                        {(todayRecord.total_hours || 0).toFixed(2)}h
                       </span>
                     </div>
                   </div>
-                )}
               </div>
             )}
           </CardContent>
@@ -433,11 +448,28 @@ export default function ControleDePonto() {
           <CardHeader className="pb-3 sm:pb-6">
             <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
               <Calendar className="h-5 w-5 sm:h-6 sm:w-6" />
-              Relatório Mensal
+              Gerar Relatórios
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              <div>
+                <label className="text-sm sm:text-base text-muted-foreground font-medium">Tipo de Relatório</label>
+                <Select
+                  value={reportType}
+                  onValueChange={(value: any) => setReportType(value)}
+                >
+                  <SelectTrigger className="h-11 text-base" data-testid="select-report-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="daily">Diário</SelectItem>
+                    <SelectItem value="weekly">Semanal</SelectItem>
+                    <SelectItem value="monthly">Mensal</SelectItem>
+                    <SelectItem value="yearly">Anual</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div>
                 <label className="text-sm sm:text-base text-muted-foreground font-medium">Usuário</label>
                 <Select
@@ -457,24 +489,49 @@ export default function ControleDePonto() {
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <label className="text-sm sm:text-base text-muted-foreground font-medium">Mês</label>
-                <Select
-                  value={selectedMonth.toString()}
-                  onValueChange={(value) => setSelectedMonth(parseInt(value))}
-                >
-                  <SelectTrigger className="h-11 text-base" data-testid="select-month">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
-                      <SelectItem key={month} value={month.toString()}>
-                        {format(new Date(2024, month - 1, 1), "MMMM", { locale: ptBR })}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+              {(reportType === "daily" || reportType === "weekly") && (
+                <div>
+                  <label className="text-sm sm:text-base text-muted-foreground font-medium">Dia</label>
+                  <Select
+                    value={selectedDay.toString()}
+                    onValueChange={(value) => setSelectedDay(parseInt(value))}
+                  >
+                    <SelectTrigger className="h-11 text-base" data-testid="select-day">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                        <SelectItem key={day} value={day.toString()}>
+                          {day}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {reportType !== "yearly" && (
+                <div>
+                  <label className="text-sm sm:text-base text-muted-foreground font-medium">Mês</label>
+                  <Select
+                    value={selectedMonth.toString()}
+                    onValueChange={(value) => setSelectedMonth(parseInt(value))}
+                  >
+                    <SelectTrigger className="h-11 text-base" data-testid="select-month">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                        <SelectItem key={month} value={month.toString()}>
+                          {format(new Date(2024, month - 1, 1), "MMMM", { locale: ptBR })}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div>
                 <label className="text-sm sm:text-base text-muted-foreground font-medium">Ano</label>
                 <Select
@@ -507,17 +564,32 @@ export default function ControleDePonto() {
             </Button>
 
             <div className="bg-muted p-4 sm:p-6 rounded-lg space-y-3">
-              <div className="text-base sm:text-lg font-bold">Resumo do Mês</div>
+              <div className="text-base sm:text-lg font-bold">Resumo do Período</div>
               <div className="grid grid-cols-2 gap-3 sm:gap-4 text-sm sm:text-base">
                 <div>
                   <div className="text-muted-foreground font-medium">Dias trabalhados</div>
                   <div className="text-xl sm:text-2xl font-bold" data-testid="text-days-worked">
                     {
                       allRecords?.filter((r) => {
-                        const [year, month] = r.date.split('-').map(Number);
-                        const matchesMonth = month === selectedMonth && year === selectedYear;
+                        const [year, month, day] = String(r.date).split('-').map(Number);
+                        let matchesPeriod = false;
+                        
+                        if (reportType === "daily") {
+                          matchesPeriod = day === selectedDay && month === selectedMonth && year === selectedYear;
+                        } else if (reportType === "monthly") {
+                          matchesPeriod = month === selectedMonth && year === selectedYear;
+                        } else if (reportType === "yearly") {
+                          matchesPeriod = year === selectedYear;
+                        } else if (reportType === "weekly") {
+                          const targetDate = new Date(selectedYear, selectedMonth - 1, selectedDay);
+                          const oneWeekAgo = new Date(targetDate);
+                          oneWeekAgo.setDate(targetDate.getDate() - 7);
+                          const recordDate = new Date(String(r.date));
+                          matchesPeriod = recordDate >= oneWeekAgo && recordDate <= targetDate;
+                        }
+
                         const matchesUser = selectedUserForReport === "all" || r.user_id === selectedUserForReport;
-                        return matchesMonth && matchesUser;
+                        return matchesPeriod && matchesUser;
                       }).length || 0
                     }
                   </div>
@@ -528,12 +600,27 @@ export default function ControleDePonto() {
                     {(
                       allRecords
                         ?.filter((r) => {
-                          const [year, month] = r.date.split('-').map(Number);
-                          const matchesMonth = month === selectedMonth && year === selectedYear;
+                          const [year, month, day] = String(r.date).split('-').map(Number);
+                          let matchesPeriod = false;
+                          
+                          if (reportType === "daily") {
+                            matchesPeriod = day === selectedDay && month === selectedMonth && year === selectedYear;
+                          } else if (reportType === "monthly") {
+                            matchesPeriod = month === selectedMonth && year === selectedYear;
+                          } else if (reportType === "yearly") {
+                            matchesPeriod = year === selectedYear;
+                          } else if (reportType === "weekly") {
+                            const targetDate = new Date(selectedYear, selectedMonth - 1, selectedDay);
+                            const oneWeekAgo = new Date(targetDate);
+                            oneWeekAgo.setDate(targetDate.getDate() - 7);
+                            const recordDate = new Date(String(r.date));
+                            matchesPeriod = recordDate >= oneWeekAgo && recordDate <= targetDate;
+                          }
+
                           const matchesUser = selectedUserForReport === "all" || r.user_id === selectedUserForReport;
-                          return matchesMonth && matchesUser;
+                          return matchesPeriod && matchesUser;
                         })
-                        .reduce((sum, r) => sum + r.total_hours, 0) || 0
+                        .reduce((sum, r) => sum + (r.total_hours || 0), 0) || 0
                     ).toFixed(2)}
                     h
                   </div>
@@ -907,3 +994,4 @@ export default function ControleDePonto() {
     </div>
   );
 }
+
